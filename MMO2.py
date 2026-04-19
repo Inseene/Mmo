@@ -21,6 +21,15 @@ dp = Dispatcher(storage=storage)
 
 players = {}
 
+# Секретные промокоды
+SECRET_CODES = [
+    "XK7F9G2H5J8L1N4P6R9T2W5Y8A",
+    "B3D6F8G9H2J4K7M9N1P3R5T7",
+    "QW4RT6YU8IO0PL2KM4NJ6BH8V",
+    "ZX5CV7BN9M1LK3JH5GF7DS9AQ",
+    "MN6BV8CX9ZL1KJ3HG5FD7SA0P"
+]
+
 class Registration(StatesGroup):
     waiting_for_nickname = State()
 
@@ -72,19 +81,19 @@ def get_citizens_keyboard():
 def get_merchant_keyboard():
     builder = InlineKeyboardBuilder()
     builder.row(
-        InlineKeyboardButton(text="🧪 Малое зелье здоровья", callback_data="buy_hp_potion")
+        InlineKeyboardButton(text="🧪 Малое зелье здоровья (30💰)", callback_data="buy_hp_potion")
     )
     builder.row(
-        InlineKeyboardButton(text="💙 Малое зелье маны", callback_data="buy_mana_potion")
+        InlineKeyboardButton(text="💙 Малое зелье маны (40💰)", callback_data="buy_mana_potion")
     )
     builder.row(
-        InlineKeyboardButton(text="🔥 Зелье ярости", callback_data="buy_rage_potion")
+        InlineKeyboardButton(text="🔥 Зелье ярости (30💰)", callback_data="buy_rage_potion")
     )
     builder.row(
-        InlineKeyboardButton(text="⚡ Зелье энергии", callback_data="buy_energy_potion")
+        InlineKeyboardButton(text="⚡ Зелье энергии (30💰)", callback_data="buy_energy_potion")
     )
     builder.row(
-        InlineKeyboardButton(text="🛡️ Зелье стойки", callback_data="buy_stance_potion")
+        InlineKeyboardButton(text="🛡️ Зелье стойки (30💰)", callback_data="buy_stance_potion")
     )
     builder.row(
         InlineKeyboardButton(text="◀️ Назад к жителям", callback_data="back_to_citizens")
@@ -120,8 +129,25 @@ def get_stats_keyboard(player_class):
         InlineKeyboardButton(text="🔮 Интуиция", callback_data="stat_intuition")
     )
     builder.row(
-        InlineKeyboardButton(text="✅ Распределить", callback_data="stat_distribute"),
         InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_character")
+    )
+    return builder.as_markup()
+
+def get_distribute_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="1️⃣", callback_data="amount_1"),
+        InlineKeyboardButton(text="2️⃣", callback_data="amount_2"),
+        InlineKeyboardButton(text="3️⃣", callback_data="amount_3")
+    )
+    builder.row(
+        InlineKeyboardButton(text="4️⃣", callback_data="amount_4"),
+        InlineKeyboardButton(text="5️⃣", callback_data="amount_5"),
+        InlineKeyboardButton(text="🔟", callback_data="amount_10")
+    )
+    builder.row(
+        InlineKeyboardButton(text="✅ Подтвердить", callback_data="confirm_distribute"),
+        InlineKeyboardButton(text="◀️ Назад", callback_data="char_stats")
     )
     return builder.as_markup()
 
@@ -141,6 +167,16 @@ def get_items_category_keyboard():
     )
     builder.row(
         InlineKeyboardButton(text="📿 Амулеты", callback_data="item_amulets")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_character")
+    )
+    return builder.as_markup()
+
+def get_resources_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🧪 Зелья", callback_data="resource_potions")
     )
     builder.row(
         InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_character")
@@ -187,7 +223,6 @@ def init_new_player(user_id, nickname, chosen_class):
         combat_stats = {"max_hp": 95, "current_hp": 95, "attack": 10, "defense": 5, 
                        "dodge": 4, "accuracy": 92, "crit_chance": 4, "crit_damage": 145}
     
-    # Начальные навыки
     active_skills = ["Удар", "Защита", None, None]
     passive_skills = []
     
@@ -200,8 +235,8 @@ def init_new_player(user_id, nickname, chosen_class):
         "level": 1,
         "exp": 0,
         "exp_to_next": 100,
-        "gold": 100,
-        "stat_points": 0,
+        "gold": 1000,  # Увеличим для теста
+        "stat_points": 10,  # Дадим очков для теста
         "stats": base_stats,
         "combat": combat_stats,
         "inventory": {
@@ -223,7 +258,9 @@ def init_new_player(user_id, nickname, chosen_class):
             "ring_right": None,
             "amulet": None
         },
-        "resources": {},
+        "resources": {
+            "potions": {}  # Зелья будут здесь
+        },
         "skills": {
             "active": active_skills,
             "passive": passive_skills,
@@ -248,6 +285,13 @@ def calculate_combat_stats(player):
     base["crit_chance"] = stats["agility"] * 0.5 + stats["intuition"] * 0.5
     base["accuracy"] = 85 + stats["intuition"] * 1
     
+    # Добавляем бонусы от экипировки
+    for slot, item in player["equipped"].items():
+        if item:
+            for stat, bonus in item.get("bonuses", {}).items():
+                if stat in base:
+                    base[stat] += bonus
+    
     if base["current_hp"] > base["max_hp"]:
         base["current_hp"] = base["max_hp"]
 
@@ -266,6 +310,77 @@ async def start(message: types.Message, state: FSMContext):
         await state.set_state(Registration.waiting_for_nickname)
     else:
         await message.answer("Ты уже зарегистрирован!", reply_markup=get_main_keyboard())
+
+# Обработчик секретных промокодов
+@dp.message(lambda message: message.text and message.text.startswith("/"))
+async def handle_secret_codes(message: types.Message):
+    user_id = message.from_user.id
+    code = message.text[1:]  # Убираем "/"
+    
+    if code in SECRET_CODES:
+        player = players.get(user_id)
+        if not player or not player.get("registered"):
+            await message.answer("Сначала зарегистрируйся! Используй /start")
+            return
+        
+        # Создаем админские предметы
+        admin_items = {
+            "weapons": [{
+                "name": "⚔️ Меч администратора",
+                "level": 99,
+                "bonuses": {"attack": 1}
+            }],
+            "helmets": [{
+                "name": "⛑️ Шлем администратора",
+                "level": 99,
+                "bonuses": {"defense": 1}
+            }],
+            "armors": [{
+                "name": "🛡️ Доспех администратора",
+                "level": 99,
+                "bonuses": {"max_hp": 1}
+            }],
+            "gloves": [{
+                "name": "🧤 Перчатки администратора",
+                "level": 99,
+                "bonuses": {"accuracy": 1}
+            }],
+            "boots": [{
+                "name": "👢 Сапоги администратора",
+                "level": 99,
+                "bonuses": {"dodge": 1}
+            }],
+            "rings": [{
+                "name": "💍 Кольцо администратора",
+                "level": 99,
+                "bonuses": {"crit_chance": 1}
+            }],
+            "amulets": [{
+                "name": "📿 Амулет администратора",
+                "level": 99,
+                "bonuses": {"crit_damage": 1}
+            }]
+        }
+        
+        # Добавляем предметы в инвентарь
+        for category, items in admin_items.items():
+            player["inventory"][category].extend(items)
+        
+        await message.answer(
+            "🎁 *ПРОМОКОД АКТИВИРОВАН!*\n\n"
+            "Ты получил сет администратора:\n"
+            "⚔️ Меч администратора\n"
+            "⛑️ Шлем администратора\n"
+            "🛡️ Доспех администратора\n"
+            "🧤 Перчатки администратора\n"
+            "👢 Сапоги администратора\n"
+            "💍 Кольцо администратора\n"
+            "📿 Амулет администратора\n\n"
+            "Эти предметы добавлены в твой инвентарь!",
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("Неизвестная команда.")
 
 @dp.message(Registration.waiting_for_nickname)
 async def get_nickname(message: types.Message, state: FSMContext):
@@ -360,7 +475,6 @@ async def confirm_class(callback: types.CallbackQuery):
     chosen_class = class_map[class_key]
     nickname = players[user_id]["nickname"]
     
-    # Полная инициализация игрока
     players[user_id] = init_new_player(user_id, nickname, chosen_class)
     
     await callback.message.edit_text(
@@ -395,7 +509,6 @@ async def confirm_class(callback: types.CallbackQuery):
             parse_mode="Markdown"
         )
     else:
-        # Временная заглушка для других классов
         players[user_id]["location"] = "Деревня Новиков"
         await callback.message.answer(
             "📍 *Деревня Новиков*\n"
@@ -483,7 +596,7 @@ async def show_stats(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("stat_"))
-async def stat_info(callback: types.CallbackQuery, state: FSMContext):
+async def stat_selected(callback: types.CallbackQuery, state: FSMContext):
     stat_key = callback.data.replace("stat_", "")
     user_id = callback.from_user.id
     player = players[user_id]
@@ -508,35 +621,83 @@ async def stat_info(callback: types.CallbackQuery, state: FSMContext):
         "intuition": "Повышает точность на 1% и шанс крита на 0.5% за очко"
     }
     
-    await state.update_data(selected_stat=stat_key)
-    await state.set_state(StatDistribution.waiting_for_amount)
+    await state.update_data(selected_stat=stat_key, temp_amount=0)
     
-    builder = InlineKeyboardBuilder()
-    for i in [1, 2, 3, 4, 5]:
-        builder.button(text=str(i), callback_data=f"amount_{i}")
-    builder.button(text="◀️ Назад", callback_data="char_stats")
-    builder.adjust(5)
-    
-    await callback.message.edit_text(
+    text = (
         f"*{stat_names[stat_key]}*\n\n"
         f"{stat_descriptions[stat_key]}\n\n"
+        f"Текущее значение: {player['stats'][stat_key]}\n"
         f"Доступно очков: {player['stat_points']}\n"
-        f"Выбери сколько очков вложить:",
-        reply_markup=builder.as_markup(),
+        f"Выбрано для распределения: 0\n\n"
+        f"Выбери сколько очков вложить:"
+    )
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_distribute_keyboard(),
         parse_mode="Markdown"
     )
     await callback.answer()
 
-@dp.callback_query(lambda c: c.data.startswith("amount_"), StatDistribution.waiting_for_amount)
-async def distribute_stats(callback: types.CallbackQuery, state: FSMContext):
+@dp.callback_query(lambda c: c.data.startswith("amount_"))
+async def select_amount(callback: types.CallbackQuery, state: FSMContext):
     amount = int(callback.data.replace("amount_", ""))
     user_id = callback.from_user.id
     player = players[user_id]
     data = await state.get_data()
     stat_key = data["selected_stat"]
+    current_amount = data.get("temp_amount", 0)
     
-    if amount > player["stat_points"]:
-        await callback.answer("❌ Недостаточно очков!")
+    new_amount = current_amount + amount
+    
+    if new_amount > player["stat_points"]:
+        await callback.answer(f"❌ Нельзя выбрать больше {player['stat_points']} очков!")
+        return
+    
+    await state.update_data(temp_amount=new_amount)
+    
+    stat_names = {
+        "strength": "Сила",
+        "intelligence": "Интеллект",
+        "vitality": "Выносливость",
+        "agility": "Ловкость",
+        "intuition": "Интуиция"
+    }
+    
+    stat_descriptions = {
+        "strength": "Повышает атаку на 2 ед. за очко",
+        "intelligence": "Повышает атаку на 2 ед. за очко",
+        "vitality": "Повышает макс. здоровье на 10 ед. за очко",
+        "agility": "Повышает уворот на 1% и шанс крита на 0.5% за очко",
+        "intuition": "Повышает точность на 1% и шанс крита на 0.5% за очко"
+    }
+    
+    text = (
+        f"*{stat_names[stat_key]}*\n\n"
+        f"{stat_descriptions[stat_key]}\n\n"
+        f"Текущее значение: {player['stats'][stat_key]}\n"
+        f"Доступно очков: {player['stat_points']}\n"
+        f"Выбрано для распределения: {new_amount}\n\n"
+        f"Выбери сколько очков вложить или подтверди:"
+    )
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=get_distribute_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer(f"➕ Добавлено {amount} очков")
+
+@dp.callback_query(lambda c: c.data == "confirm_distribute")
+async def confirm_distribute(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    player = players[user_id]
+    data = await state.get_data()
+    stat_key = data["selected_stat"]
+    amount = data.get("temp_amount", 0)
+    
+    if amount <= 0:
+        await callback.answer("❌ Выбери количество очков!")
         return
     
     player["stats"][stat_key] += amount
@@ -544,7 +705,7 @@ async def distribute_stats(callback: types.CallbackQuery, state: FSMContext):
     calculate_combat_stats(player)
     
     await state.clear()
-    await callback.answer(f"✅ Вложено {amount} очков!")
+    await callback.answer(f"✅ Вложено {amount} очков в {stat_key}!")
     await show_stats(callback)
 
 @dp.callback_query(lambda c: c.data == "char_items")
@@ -580,7 +741,24 @@ async def show_items_category(callback: types.CallbackQuery):
     else:
         text = f"*{category_names[category]}*\n\n"
         for i, item in enumerate(items, 1):
-            text += f"{i}. {item['name']} (Ур. {item.get('level', 1)})\n"
+            equipped_mark = ""
+            # Проверяем, экипирован ли предмет
+            if category == "weapons" and player["equipped"]["weapon"] == item:
+                equipped_mark = " ✅"
+            elif category == "helmets" and player["equipped"]["helmet"] == item:
+                equipped_mark = " ✅"
+            elif category == "armors" and player["equipped"]["armor"] == item:
+                equipped_mark = " ✅"
+            elif category == "gloves" and player["equipped"]["gloves"] == item:
+                equipped_mark = " ✅"
+            elif category == "boots" and player["equipped"]["boots"] == item:
+                equipped_mark = " ✅"
+            elif category == "rings" and (player["equipped"]["ring_left"] == item or player["equipped"]["ring_right"] == item):
+                equipped_mark = " ✅"
+            elif category == "amulets" and player["equipped"]["amulet"] == item:
+                equipped_mark = " ✅"
+                
+            text += f"{i}. {item['name']} (Ур. {item.get('level', 1)}){equipped_mark}\n"
     
     builder = InlineKeyboardBuilder()
     if items:
@@ -614,7 +792,6 @@ async def equip_item(callback: types.CallbackQuery):
     elif category == "boots":
         player["equipped"]["boots"] = item
     elif category == "rings":
-        # Проверка колец
         if not player["equipped"]["ring_left"]:
             player["equipped"]["ring_left"] = item
         elif not player["equipped"]["ring_right"]:
@@ -631,22 +808,42 @@ async def equip_item(callback: types.CallbackQuery):
 
 @dp.callback_query(lambda c: c.data == "char_resources")
 async def show_resources(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "*📦 РЕСУРСЫ*\n\n"
+        "Выбери категорию ресурсов:",
+        reply_markup=get_resources_keyboard(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "resource_potions")
+async def show_potions(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     player = players[user_id]
-    resources = player["resources"]
+    potions = player["resources"].get("potions", {})
     
-    if not resources:
-        text = "*📦 РЕСУРСЫ*\n\nУ тебя пока нет ресурсов."
+    if not potions:
+        text = "*🧪 ЗЕЛЬЯ*\n\nУ тебя пока нет зелий."
     else:
-        text = "*📦 РЕСУРСЫ*\n\n"
-        for res, amount in resources.items():
-            text += f"• {res}: {amount} шт.\n"
+        text = "*🧪 ЗЕЛЬЯ*\n\n"
+        builder = InlineKeyboardBuilder()
+        for potion, amount in potions.items():
+            text += f"{potion}: {amount} шт.\n"
+            builder.row(InlineKeyboardButton(text=f"🧪 {potion} ({amount} шт.)", callback_data=f"use_potion_{potion}"))
+        builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="char_resources"))
     
-    builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_character"))
+    if potions:
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
+    else:
+        builder = InlineKeyboardBuilder()
+        builder.row(InlineKeyboardButton(text="◀️ Назад", callback_data="char_resources"))
+        await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     
-    await callback.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="Markdown")
     await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("use_potion_"))
+async def use_potion(callback: types.CallbackQuery):
+    await callback.answer("🚧 Использование зелий в разработке!")
 
 @dp.callback_query(lambda c: c.data == "char_skills")
 async def show_skills_menu(callback: types.CallbackQuery):
@@ -853,7 +1050,66 @@ async def citizen_info(callback: types.CallbackQuery):
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("buy_"))
-async def buy_item(callback: types.CallbackQuery):
+async def show_item_info(callback: types.CallbackQuery):
+    """Показывает информацию о товаре перед покупкой"""
+    items = {
+        "buy_hp_potion": {
+            "name": "🧪 Малое зелье здоровья",
+            "desc": "Восстанавливает 50 единиц здоровья. Имеет приятный травяной вкус.",
+            "effect": "❤️ +50 HP",
+            "price": 30
+        },
+        "buy_mana_potion": {
+            "name": "💙 Малое зелье маны",
+            "desc": "Восстанавливает 20 единиц маны. Светится голубым сиянием.",
+            "effect": "💙 +20 маны",
+            "price": 40
+        },
+        "buy_rage_potion": {
+            "name": "🔥 Зелье ярости",
+            "desc": "Восстанавливает 30 единиц ярости. При употреблении чувствуется прилив сил.",
+            "effect": "🔥 +30 ярости",
+            "price": 30
+        },
+        "buy_energy_potion": {
+            "name": "⚡ Зелье энергии",
+            "desc": "Восстанавливает 30 единиц энергии. Искрит в руках.",
+            "effect": "⚡ +30 энергии",
+            "price": 30
+        },
+        "buy_stance_potion": {
+            "name": "🛡️ Зелье стойки",
+            "desc": "Восстанавливает 30 единиц стойки. Укрепляет дух и тело.",
+            "effect": "🛡️ +30 стойки",
+            "price": 30
+        }
+    }
+    
+    item = items.get(callback.data)
+    if not item:
+        await callback.answer("Товар не найден")
+        return
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="✅ Купить", callback_data=f"confirm_buy_{callback.data}"))
+    builder.row(InlineKeyboardButton(text="◀️ Назад к товарам", callback_data="citizen_merchant"))
+    
+    await callback.message.edit_text(
+        f"*{item['name']}*\n\n"
+        f"📜 *Описание:* {item['desc']}\n"
+        f"✨ *Эффект:* {item['effect']}\n"
+        f"💰 *Цена:* {item['price']} золота\n\n"
+        f"Желаешь приобрести?",
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("confirm_buy_"))
+async def confirm_buy_item(callback: types.CallbackQuery):
+    """Подтверждение и выполнение покупки"""
+    item_key = callback.data.replace("confirm_buy_", "")
+    
     items = {
         "buy_hp_potion": ("🧪 Малое зелье здоровья", "+50 HP", 30),
         "buy_mana_potion": ("💙 Малое зелье маны", "+20 маны", 40),
@@ -862,7 +1118,7 @@ async def buy_item(callback: types.CallbackQuery):
         "buy_stance_potion": ("🛡️ Зелье стойки", "+30 стойки", 30)
     }
     
-    item = items.get(callback.data)
+    item = items.get(item_key)
     if not item:
         await callback.answer("Товар не найден")
         return
@@ -877,14 +1133,15 @@ async def buy_item(callback: types.CallbackQuery):
     player["gold"] -= item[2]
     
     # Добавление зелья в ресурсы
-    if "зелья" not in player["resources"]:
-        player["resources"]["зелья"] = {}
-    if item[0] not in player["resources"]["зелья"]:
-        player["resources"]["зелья"][item[0]] = 0
-    player["resources"]["зелья"][item[0]] += 1
+    if "potions" not in player["resources"]:
+        player["resources"]["potions"] = {}
+    if item[0] not in player["resources"]["potions"]:
+        player["resources"]["potions"][item[0]] = 0
+    player["resources"]["potions"][item[0]] += 1
     
     builder = InlineKeyboardBuilder()
     builder.row(InlineKeyboardButton(text="◀️ Назад к товарам", callback_data="citizen_merchant"))
+    builder.row(InlineKeyboardButton(text="🏺 К торговцу", callback_data="citizen_merchant"))
     
     await callback.message.edit_text(
         f"✅ *Покупка совершена!*\n\n"
@@ -913,6 +1170,9 @@ async def under_development(message: types.Message):
 
 async def main():
     print("✅ Бот запущен и готов к работе!")
+    print("🔑 Секретные промокоды:")
+    for code in SECRET_CODES:
+        print(f"   /{code}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
