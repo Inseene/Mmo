@@ -1,8 +1,8 @@
 import asyncio
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -24,6 +24,26 @@ players = {}
 class Registration(StatesGroup):
     waiting_for_nickname = State()
 
+def get_main_keyboard():
+    builder = ReplyKeyboardBuilder()
+    builder.row(
+        KeyboardButton(text="🗺️ Путешествие"),
+        KeyboardButton(text="👥 Жители")
+    )
+    builder.row(
+        KeyboardButton(text="📊 Персонаж"),
+        KeyboardButton(text="🛡️ Клан")
+    )
+    builder.row(
+        KeyboardButton(text="📜 Квесты"),
+        KeyboardButton(text="⚙️ Меню")
+    )
+    builder.row(
+        KeyboardButton(text="👫 Друзья"),
+        KeyboardButton(text="❓ Помощь")
+    )
+    return builder.as_markup(resize_keyboard=True)
+
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -32,7 +52,8 @@ async def start(message: types.Message, state: FSMContext):
             "tg_id": user_id,
             "nickname": None,
             "class": None,
-            "registered": False
+            "registered": False,
+            "location": None
         }
         await message.answer("🎮 Приветствую, странник! Назови свой никнейм:")
         await state.set_state(Registration.waiting_for_nickname)
@@ -134,13 +155,45 @@ async def confirm_class(callback: types.CallbackQuery):
     players[user_id]["registered"] = True
     nickname = players[user_id]["nickname"]
     
-    await callback.message.edit_text(
-        f"✅ *Регистрация завершена!*\n\n"
-        f"Твой никнейм: {nickname}\n"
-        f"Твой класс: {chosen_class}\n\n"
-        f"Приключение начинается!",
-        parse_mode="Markdown"
-    )
+    if class_key == "class_cleric":
+        players[user_id]["location"] = "Священный город Люминара"
+        
+        city_description = (
+            "✨ *СВЯЩЕННЫЙ ГОРОД ЛЮМИНАРА* ✨\n\n"
+            "Ты открываешь глаза и видишь перед собой величественный город, залитый мягким золотистым светом. "
+            "Высокие шпили соборов из белоснежного мрамора устремляются в небеса, а воздух наполнен "
+            "умиротворяющим звоном колоколов и ароматом благовоний.\n\n"
+            "Повсюду снуют паломники в светлых одеяниях, а по мостовым медленно шествуют жрецы, "
+            "читающие священные манускрипты. В центре площади возвышается гигантская статуя "
+            "небесного покровителя, от которой исходит тёплое, исцеляющее сияние.\n\n"
+            "Ты чувствуешь, как благословение этого места наполняет твою душу покоем и силой. "
+            "Странники со всех концов света приходят сюда в поисках исцеления и мудрости. "
+            "Сегодня твой путь начинается именно здесь."
+        )
+        
+        await callback.message.edit_text(
+            f"✅ *Регистрация завершена!*\n\n"
+            f"Твой никнейм: {nickname}\n"
+            f"Твой класс: {chosen_class}\n\n"
+            f"{city_description}",
+            parse_mode="Markdown"
+        )
+        
+        await callback.message.answer(
+            "📍 *Люминара — Центральная площадь*\n"
+            "Куда направишься, путник?",
+            reply_markup=get_main_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        await callback.message.edit_text(
+            f"✅ *Регистрация завершена!*\n\n"
+            f"Твой никнейм: {nickname}\n"
+            f"Твой класс: {chosen_class}\n\n"
+            f"Приключение начинается!",
+            parse_mode="Markdown"
+        )
+    
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "back_to_classes")
