@@ -44,6 +44,23 @@ def get_main_keyboard():
     )
     return builder.as_markup(resize_keyboard=True)
 
+def get_citizens_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🧙 Старейшина Элдрин (Сюжет)", callback_data="citizen_elder")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🏺 Торговец Маркус", callback_data="citizen_merchant")
+    )
+    builder.row(
+        InlineKeyboardButton(text="👧 Мира — Сиротка", callback_data="citizen_mira"),
+        InlineKeyboardButton(text="👨 Брат Теодор — Монах", callback_data="citizen_theodore")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад", callback_data="back_to_city")
+    )
+    return builder.as_markup()
+
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -155,10 +172,18 @@ async def confirm_class(callback: types.CallbackQuery):
     players[user_id]["registered"] = True
     nickname = players[user_id]["nickname"]
     
+    await callback.message.edit_text(
+        f"✅ *Регистрация завершена!*\n\n"
+        f"Твой никнейм: {nickname}\n"
+        f"Твой класс: {chosen_class}\n\n"
+        f"Приключение начинается!",
+        parse_mode="Markdown"
+    )
+    
     if class_key == "class_cleric":
         players[user_id]["location"] = "Священный город Люминара"
         
-        city_description = (
+        await callback.message.answer(
             "✨ *СВЯЩЕННЫЙ ГОРОД ЛЮМИНАРА* ✨\n\n"
             "Ты открываешь глаза и видишь перед собой величественный город, залитый мягким золотистым светом. "
             "Высокие шпили соборов из белоснежного мрамора устремляются в небеса, а воздух наполнен "
@@ -168,14 +193,7 @@ async def confirm_class(callback: types.CallbackQuery):
             "небесного покровителя, от которой исходит тёплое, исцеляющее сияние.\n\n"
             "Ты чувствуешь, как благословение этого места наполняет твою душу покоем и силой. "
             "Странники со всех концов света приходят сюда в поисках исцеления и мудрости. "
-            "Сегодня твой путь начинается именно здесь."
-        )
-        
-        await callback.message.edit_text(
-            f"✅ *Регистрация завершена!*\n\n"
-            f"Твой никнейм: {nickname}\n"
-            f"Твой класс: {chosen_class}\n\n"
-            f"{city_description}",
+            "Сегодня твой путь начинается именно здесь.",
             parse_mode="Markdown"
         )
         
@@ -183,14 +201,6 @@ async def confirm_class(callback: types.CallbackQuery):
             "📍 *Люминара — Центральная площадь*\n"
             "Куда направишься, путник?",
             reply_markup=get_main_keyboard(),
-            parse_mode="Markdown"
-        )
-    else:
-        await callback.message.edit_text(
-            f"✅ *Регистрация завершена!*\n\n"
-            f"Твой никнейм: {nickname}\n"
-            f"Твой класс: {chosen_class}\n\n"
-            f"Приключение начинается!",
             parse_mode="Markdown"
         )
     
@@ -211,6 +221,90 @@ async def back_to_classes(callback: types.CallbackQuery):
     await callback.message.edit_text(
         "Выбери свой класс:",
         reply_markup=builder.as_markup()
+    )
+    await callback.answer()
+
+@dp.message(lambda message: message.text == "👥 Жители")
+async def show_citizens(message: types.Message):
+    user_id = message.from_user.id
+    if players.get(user_id, {}).get("location") == "Священный город Люминара":
+        await message.answer(
+            "👥 *ЖИТЕЛИ ЛЮМИНАРЫ*\n\n"
+            "На центральной площади ты видишь несколько человек. К кому подойдёшь?",
+            reply_markup=get_citizens_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        await message.answer("Вокруг никого нет.")
+
+@dp.callback_query(lambda c: c.data == "back_to_city")
+async def back_to_city(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "📍 *Люминара — Центральная площадь*\n"
+        "Куда направишься, путник?",
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("citizen_"))
+async def citizen_info(callback: types.CallbackQuery):
+    citizen_key = callback.data
+    
+    citizens = {
+        "citizen_elder": (
+            "🧙 *СТАРЕЙШИНА ЭЛДРИН*\n\n"
+            "Седовласый старец с длинной белой бородой, опирающийся на посох, украшенный сияющим кристаллом. "
+            "Его глаза, несмотря на возраст, полны мудрости и внутренней силы. Он носит белые одежды с золотой вышивкой "
+            "и является верховным жрецом Люминары.\n\n"
+            "— А, это ты... Я ждал тебя, путник. Тьма сгущается над нашими землями, и лишь избранный может "
+            "остановить её. Но ты пока не готов. Возвращайся, когда наберёшься сил.\n\n"
+            "*Основной сюжетный персонаж*"
+        ),
+        "citizen_merchant": (
+            "🏺 *ТОРГОВЕЦ МАРКУС*\n\n"
+            "Крепкий мужчина средних лет с хитрым прищуром и аккуратной бородкой. Его пояс увешан мешочками с монетами, "
+            "а за спиной виднеется тележка с разнообразными товарами — от зелий до диковинных артефактов.\n\n"
+            "— Приветствую, добрый странник! Не желаешь ли взглянуть на мои товары? У меня есть кое-что особенное... "
+            "Правда, сейчас я жду поставку. Заходи позже!\n\n"
+            "*Торговец (пока не работает)*"
+        ),
+        "citizen_mira": (
+            "👧 *МИРА — СИРОТКА*\n\n"
+            "Девочка лет десяти с большими грустными глазами и растрёпанными светлыми волосами. "
+            "Она сидит на ступенях собора, кутаясь в старый плащ, и с надеждой смотрит на прохожих.\n\n"
+            "— Господин... госпожа... вы не видели моего котёнка? Он серенький, с белыми лапками. "
+            "Я потеряла его возле восточных ворот. Может быть, вы поможете мне найти его?..\n\n"
+            "*Побочный квест (пока не работает)*"
+        ),
+        "citizen_theodore": (
+            "👨 *БРАТ ТЕОДОР — МОНАХ*\n\n"
+            "Молодой монах в скромной коричневой рясе, с выбритой тонзурой и добрым, слегка встревоженным лицом. "
+            "Он постоянно теребит чётки и оглядывается по сторонам.\n\n"
+            "— Да пребудет с тобой Свет, путник... Мне нужна помощь. Из монастырской библиотеки пропали "
+            "древние свитки. Отец-настоятель будет в ярости, если узнает. Ты не мог бы поискать их в подземельях?\n\n"
+            "*Побочный квест (пока не работает)*"
+        )
+    }
+    
+    text = citizens.get(citizen_key, "Этот житель пока занят.")
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="◀️ Назад к жителям", callback_data="back_to_citizens"))
+    
+    await callback.message.edit_text(
+        text,
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "back_to_citizens")
+async def back_to_citizens(callback: types.CallbackQuery):
+    await callback.message.edit_text(
+        "👥 *ЖИТЕЛИ ЛЮМИНАРЫ*\n\n"
+        "На центральной площади ты видишь несколько человек. К кому подойдёшь?",
+        reply_markup=get_citizens_keyboard(),
+        parse_mode="Markdown"
     )
     await callback.answer()
 
