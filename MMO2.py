@@ -61,6 +61,28 @@ def get_citizens_keyboard():
     )
     return builder.as_markup()
 
+def get_merchant_keyboard():
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(text="🧪 Малое зелье здоровья", callback_data="buy_hp_potion")
+    )
+    builder.row(
+        InlineKeyboardButton(text="💙 Малое зелье маны", callback_data="buy_mana_potion")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🔥 Зелье ярости", callback_data="buy_rage_potion")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⚡ Зелье энергии", callback_data="buy_energy_potion")
+    )
+    builder.row(
+        InlineKeyboardButton(text="🛡️ Зелье стойки", callback_data="buy_stance_potion")
+    )
+    builder.row(
+        InlineKeyboardButton(text="◀️ Назад к жителям", callback_data="back_to_citizens")
+    )
+    return builder.as_markup()
+
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -250,6 +272,19 @@ async def back_to_city(callback: types.CallbackQuery):
 async def citizen_info(callback: types.CallbackQuery):
     citizen_key = callback.data
     
+    if citizen_key == "citizen_merchant":
+        await callback.message.edit_text(
+            "🏺 *ТОРГОВЕЦ МАРКУС*\n\n"
+            "Крепкий мужчина средних лет с хитрым прищуром и аккуратной бородкой. Его пояс увешан мешочками с монетами, "
+            "а за спиной виднеется тележка с разнообразными товарами — от зелий до диковинных артефактов.\n\n"
+            "— Приветствую, добрый странник! Желаешь взглянуть на мои товары?\n\n"
+            "*Выбери товар:*",
+            reply_markup=get_merchant_keyboard(),
+            parse_mode="Markdown"
+        )
+        await callback.answer()
+        return
+    
     citizens = {
         "citizen_elder": (
             "🧙 *СТАРЕЙШИНА ЭЛДРИН*\n\n"
@@ -259,14 +294,6 @@ async def citizen_info(callback: types.CallbackQuery):
             "— А, это ты... Я ждал тебя, путник. Тьма сгущается над нашими землями, и лишь избранный может "
             "остановить её. Но ты пока не готов. Возвращайся, когда наберёшься сил.\n\n"
             "*Основной сюжетный персонаж*"
-        ),
-        "citizen_merchant": (
-            "🏺 *ТОРГОВЕЦ МАРКУС*\n\n"
-            "Крепкий мужчина средних лет с хитрым прищуром и аккуратной бородкой. Его пояс увешан мешочками с монетами, "
-            "а за спиной виднеется тележка с разнообразными товарами — от зелий до диковинных артефактов.\n\n"
-            "— Приветствую, добрый странник! Не желаешь ли взглянуть на мои товары? У меня есть кое-что особенное... "
-            "Правда, сейчас я жду поставку. Заходи позже!\n\n"
-            "*Торговец (пока не работает)*"
         ),
         "citizen_mira": (
             "👧 *МИРА — СИРОТКА*\n\n"
@@ -293,6 +320,33 @@ async def citizen_info(callback: types.CallbackQuery):
     
     await callback.message.edit_text(
         text,
+        reply_markup=builder.as_markup(),
+        parse_mode="Markdown"
+    )
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data.startswith("buy_"))
+async def buy_item(callback: types.CallbackQuery):
+    items = {
+        "buy_hp_potion": ("🧪 Малое зелье здоровья", "+50 HP", "30 золота"),
+        "buy_mana_potion": ("💙 Малое зелье маны", "+20 маны", "40 золота"),
+        "buy_rage_potion": ("🔥 Зелье ярости", "+30 ярости", "30 золота"),
+        "buy_energy_potion": ("⚡ Зелье энергии", "+30 энергии", "30 золота"),
+        "buy_stance_potion": ("🛡️ Зелье стойки", "+30 стойки", "30 золота")
+    }
+    
+    item = items.get(callback.data, ("Неизвестный предмет", "", ""))
+    
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text="◀️ Назад к товарам", callback_data="citizen_merchant"))
+    
+    await callback.message.edit_text(
+        f"*{item[0]}*\n\n"
+        f"Эффект: {item[1]}\n"
+        f"Цена: {item[2]}\n\n"
+        f"❌ *Покупка пока недоступна*\n"
+        f"Торговец разводит руками:\n"
+        f"— Прости, странник, торговля ещё не открыта. Заходи позже!",
         reply_markup=builder.as_markup(),
         parse_mode="Markdown"
     )
